@@ -16,7 +16,7 @@ ENV RTP_START        10000
 ENV RTP_END          10099
 
 COPY build.sh /
-RUN /build.sh
+RUN build.sh
 
 EXPOSE 5060/udp 5060/tcp
 
