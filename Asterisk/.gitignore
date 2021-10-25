@@ -1,0 +1,6 @@
+# Ignore backup
+build_bkp.sh
+
+# Ignore excels
+*.xlsx
+*.pdf
