@@ -15,13 +15,16 @@ useradd --system ${ASTERISK_USER}
 #############################
 apt-get update -qq
 apt-get install -y --no-install-recommends --no-install-suggests \
-    build-essential
-    libncurses5-dev
-    libssl-dev
-    libxml2-dev
-    libsqlite3-dev
-    uuid-dev
-    vim-nox
+    build-essential \
+    libncurses5-dev \
+    file \
+    libedit-dev \
+    libresample1-dev \
+    libssl-dev \
+    libxml2-dev \
+    libsqlite3-dev \
+    uuid-dev \
+    vim-nox \
     curl
 
 # Remove all unused packages
@@ -38,7 +41,6 @@ curl -vsL http://downloads.asterisk.org/pub/telephony/asterisk/asterisk-${ASTERI
 : ${JOBS:=$(( $(nproc) + $(nproc) / 2 ))}
 
 ./configure --with-resample \
-            --with-pjproject-bundled \
             --with-jansson-bundled
 make menuselect/menuselect menuselect-tree menuselect.makeopts
 # Generally, Asterisk attempts to optimize itself for the machine on which it is built on. 
@@ -66,8 +68,6 @@ make samples
 # Set rtp ranges
 sed -i -E "s/(rtpstart=10000)/\rtpstart=${RTP_START}/" /etc/asterisk/rtp.conf
 sed -i -E "s/(rtpend=20000)/\rtpend=${RTP_END}/" /etc/asterisk/rtp.conf
-echo cat rtp.conf | grep "rtpstart="
-echo cat rtp.conf | grep "rtpend="
 
 # Install opus
 
@@ -98,12 +98,10 @@ apt-get --yes purge \
   build-essential \
   bzip2 \
   cpp \
-  m4 \
   make \
   patch \
   perl \
   perl-modules \
-  pkg-config \
   xz-utils \
   ${DEV_PACKAGES_PATTERN}
 rm -rf /var/lib/apt/lists/*
