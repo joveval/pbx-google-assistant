@@ -29,5 +29,5 @@ VOLUME /var/lib/asterisk/sounds /var/lib/asterisk/keys\
 COPY entrypoint.sh /
 COPY /config/*.conf /etc/asterisk/
 
-ENTRYPOINT ["/entrypoint.sh"]
+ENTRYPOINT ["/usr/sbin/asterisk", "-vvvdddnf", "-T", "-W", "-U", "asterisk", "-p"]]
 CMD ["/usr/sbin/asterisk"]  

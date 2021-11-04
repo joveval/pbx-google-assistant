@@ -10,22 +10,37 @@ set -ex
 
 useradd --system ${ASTERISK_USER}
 
-#############################
-# 1. Installing Basic Tools #
-#############################
-apt-get update -qq
-apt-get install -y --no-install-recommends --no-install-suggests \
-    build-essential \
-    libncurses5-dev \
-    file \
-    libedit-dev \
-    libresample1-dev \
-    libssl-dev \
-    libxml2-dev \
-    libsqlite3-dev \
-    uuid-dev \
-    vim-nox \
-    curl
+######################################
+# 1. Installing Sofware Requirements #
+######################################
+
+apt-get update
+apt-get install -y \
+        bison \
+        wget \
+        openssl \
+        libssl-dev \
+        libasound2-dev \
+        libc6-dev \
+        libxml2-dev \
+        libsqlite3-dev \
+        libnewt-dev \
+        libncurses5-dev \
+        zlib1g-dev \
+        gcc \
+        g++ \
+        make \
+        perl \
+        uuid-dev \
+        git \
+        subversion \
+        libjansson-dev \
+        unixodbc-dev \
+        unixodbc-bin \
+        unixodbc \
+        autoconf \
+        libedit-dev
+
 
 # Remove all unused packages
 apt-get purge -y --auto-remove
@@ -35,19 +50,15 @@ rm -rf /var/lib/apt/lists/*
 #########################################
 mkdir -p /usr/src/asterisk
 cd /usr/src/asterisk
-curl -vsL http://downloads.asterisk.org/pub/telephony/asterisk/asterisk-${ASTERISK_VERSION}.tar.gz | tar --strip-components 1 -xz || \
+wget -vsL http://downloads.asterisk.org/pub/telephony/asterisk/asterisk-${ASTERISK_VERSION}.tar.gz | tar --strip-components 1 -xz
 
-# 1.5 jobs per core works out okay
-: ${JOBS:=$(( $(nproc) + $(nproc) / 2 ))}
-
-./configure --with-resample \
-            --with-jansson-bundled
+./configure
 make menuselect/menuselect menuselect-tree menuselect.makeopts
 # Generally, Asterisk attempts to optimize itself for the machine on which it is built on. 
 # On some virtual machines with virtual CPU architectures, 
 # the defaults chosen by Asterisk's compilation options will cause Asterisk to build but fail to run.
 # To disable native architecture support, disable the BUILD_NATIVE option in menuselect:
-menuselect/menuselect --disable BUILD_NATIVE menuselect.makeopts
+# menuselect/menuselect --disable BUILD_NATIVE menuselect.makeopts
 
  # download more sounds
  for i in CORE-SOUNDS-EN; do
@@ -61,27 +72,25 @@ menuselect/menuselect --disable BUILD_NATIVE menuselect.makeopts
 #menuselect/menuselect --disable-category MENUSELECT_MOH menuselect.makeopts
 #menuselect/menuselect --disable-category MENUSELECT_EXTRA_SOUNDS menuselect.makeopts
 
-make -j ${JOBS} all
-make install
-make samples
+make && make install && make config && make samples
 
 # Set rtp ranges
-sed -i -E "s/(rtpstart=10000)/\rtpstart=${RTP_START}/" /etc/asterisk/rtp.conf
-sed -i -E "s/(rtpend=20000)/\rtpend=${RTP_END}/" /etc/asterisk/rtp.conf
+sed -i -E "s/(rtpstart=10000)/rtpstart=${RTP_START}/" /etc/asterisk/rtp.conf
+sed -i -E "s/(rtpend=20000)/rtpend=${RTP_END}/" /etc/asterisk/rtp.conf
 
 # Install opus
 
-mkdir -p /usr/src/codecs/opus \
-  && cd /usr/src/codecs/opus \
-  && curl -vsL http://downloads.digium.com/pub/telephony/codec_opus/${OPUS_CODEC}.tar.gz | tar --strip-components 1 -xz \
-  && cp *.so /usr/lib/asterisk/modules/ \
-  && cp codec_opus_config-en_US.xml /var/lib/asterisk/documentation/
+# mkdir -p /usr/src/codecs/opus \
+#  && cd /usr/src/codecs/opus \
+#  && curl -vsL http://downloads.digium.com/pub/telephony/codec_opus/${OPUS_CODEC}.tar.gz | tar --strip-components 1 -xz \
+#  && cp *.so /usr/lib/asterisk/modules/ \
+#  && cp codec_opus_config-en_US.xml /var/lib/asterisk/documentation/
 
-mkdir -p /etc/asterisk/ \
-         /var/lib/asterisk/ \
-         /var/spool/asterisk/ \
-         /var/log/asterisk/ \
-         /var/run/asterisk/
+# mkdir -p /etc/asterisk/ \
+#         /var/lib/asterisk/ \
+#         /var/spool/asterisk/ \
+#         /var/log/asterisk/ \
+#         /var/run/asterisk/
 
 chown -R ${ASTERISK_USER}:${ASTERISK_GROUP} /etc/asterisk \
                                             /var/*/asterisk \
