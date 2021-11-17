@@ -30,7 +30,7 @@ RUN DEBIAN_FRONTEND=noninteractive apt-get install -y \
     vim-nox \
     sox \
     libsox-fmt-mp3 \
-    ibwww-perl \
+    libwww-perl \
     libjson-perl \
     curl
 
