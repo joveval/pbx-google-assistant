@@ -36,8 +36,8 @@ RUN DEBIAN_FRONTEND=noninteractive apt-get install -y \
     libjson-perl \
     curl
 
-RUN curl -L https://cpanmin.us | perl - --sudo App::cpanminus
-RUN cpanm IO::Socket::SSL --force | perl -MCPAN -e 'install JSON'
+#RUN curl -L https://cpanmin.us | perl - --sudo App::cpanminus
+#RUN cpanm IO::Socket::SSL --force | perl -MCPAN -e 'install JSON'
 
 RUN mkdir -p /usr/src/asterisk & cd /usr/src/asterisk & curl -vsL ${AST_SRC_CODE} | tar --strip-components 1 -xz
 RUN ./configure
