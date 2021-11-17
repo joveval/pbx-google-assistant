@@ -52,6 +52,6 @@ VOLUME /var/lib/asterisk/sounds /var/lib/asterisk/keys\
 #COPY entrypoint.sh /
 COPY /config/*.conf /etc/asterisk/
 COPY alexa.agi /var/lib/asterisk/agi-bin/alexa.agi
-
+COPY /sounds/alexa*.sln /var/lib/asterisk/sounds/custom/alexa*.sln
 ENTRYPOINT ["/usr/sbin/asterisk"]
 CMD ["-vvvdddnf", "-T", "-W", "-p"]

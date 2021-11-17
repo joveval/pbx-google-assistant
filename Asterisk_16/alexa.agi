@@ -60,7 +60,7 @@ my $token_file = "$tmpdir/token.avs";
 my $token;
 my $avs_dir    = "/etc";
 my $avs_json_file = "$avs_dir/avs_audio.json";
-my $thank	= "/usr/share/asterisk/sounds/en/auth-thankyou";
+my $thank	= "/var/lib/asterisk/sounds/en/auth-thankyou";
 
 
 # AGI Parameters from Asterisk #
