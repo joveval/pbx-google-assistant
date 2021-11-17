@@ -28,7 +28,14 @@ RUN DEBIAN_FRONTEND=noninteractive apt-get install -y \
     uuid-dev \
     libjansson-dev \
     vim-nox \
+    sox \
+    libsox-fmt-mp3 \
+    ibwww-perl \
+    libjson-perl \
     curl
+
+RUN curl -L https://cpanmin.us | perl - --sudo App::cpanminus
+RUN cpanm IO::Socket::SSL --force | perl -MCPAN -e 'install JSON'
 
 RUN mkdir -p /usr/src/asterisk & cd /usr/src/asterisk & curl -vsL ${AST_SRC_CODE} | tar --strip-components 1 -xz
 RUN ./configure
@@ -43,6 +50,8 @@ VOLUME /var/lib/asterisk/sounds /var/lib/asterisk/keys\
 
 # Copy relevant config and relevant files
 #COPY entrypoint.sh /
-#COPY /config/*.conf /etc/asterisk/
+COPY /config/*.conf /etc/asterisk/
+COPY alexa.agi /var/lib/asterisk/agi-bin/alexa.agi
+
 ENTRYPOINT ["/usr/sbin/asterisk"]
 CMD ["-vvvdddnf", "-T", "-W", "-p"]

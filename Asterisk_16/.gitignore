@@ -1,0 +1,6 @@
+# Ignore backup
+*.bkup
+
+# Ignore excels
+*.xlsx
+*.pdf
