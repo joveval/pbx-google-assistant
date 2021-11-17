@@ -16,7 +16,9 @@ ENV OPUS_SRC_CODE    http://downloads.digium.com/pub/telephony/codec_opus/asteri
 # Install build dependencies
 RUN apt-get update -qq
 RUN DEBIAN_FRONTEND=noninteractive apt-get install -y \
-    apt-utils \
+    apt-utils
+RUN apt-get update -qq
+RUN DEBIAN_FRONTEND=noninteractive apt-get install -y \
     build-essential \
     libncurses5-dev \
     file \
