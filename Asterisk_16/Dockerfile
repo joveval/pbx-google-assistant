@@ -30,30 +30,27 @@ RUN DEBIAN_FRONTEND=noninteractive apt-get install -y \
     uuid-dev \
     libjansson-dev \
     vim-nox \
-    sox \
-    libsox-fmt-mp3 \
-    libwww-perl \
-    libjson-perl \
     curl
-
-#RUN curl -L https://cpanmin.us | perl - --sudo App::cpanminus
-#RUN cpanm IO::Socket::SSL --force | perl -MCPAN -e 'install JSON'
 
 RUN mkdir -p /usr/src/asterisk & cd /usr/src/asterisk & curl -vsL ${AST_SRC_CODE} | tar --strip-components 1 -xz
 RUN ./configure
 RUN make && make install && make config && make samples
+COPY install_perl.sh /
+RUN chmod +x /install_perl.sh
+RUN /install_perl.sh
 
 EXPOSE 5060/udp
 
 # Volumes needed to work with asterisk multiple instances
 VOLUME /var/lib/asterisk/sounds /var/lib/asterisk/keys\
-/var/lib/asterisk/phoneprov /var/spool/asterisk\
-/var/log/asterisk
+       /var/lib/asterisk/phoneprov /var/spool/asterisk\
+       /var/log/asterisk /tmp/records /etc/dialogflow
 
 # Copy relevant config and relevant files
-#COPY entrypoint.sh /
+
+COPY /*.json /etc/dialogflow/
 COPY /config/*.conf /etc/asterisk/
-COPY alexa.agi /var/lib/asterisk/agi-bin/alexa.agi
+COPY dflow.agi /var/lib/asterisk/agi-bin/dflow.agi
 COPY /sounds/alexa*.sln /var/lib/asterisk/sounds/custom/
 ENTRYPOINT ["/usr/sbin/asterisk"]
 CMD ["-vvvdddnf", "-T", "-W", "-p"]

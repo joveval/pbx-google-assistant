@@ -1,0 +1,367 @@
+#!/usr/bin/env perl
+use warnings;
+use strict;
+use MIME::Base64 qw(encode_base64url decode_base64url decode_base64);
+use Crypt::JWT qw(encode_jwt decode_jwt);
+use File::Find qw(find);
+use JSON qw( decode_json encode_json);
+use REST::Client;
+
+$| = 1;
+
+###################################
+# ASTERISK
+###################################
+# Global Arguments
+
+my %AGI;
+
+# Record Constants
+
+my $sounds_folder = "/var/lib/asterisk/sounds/es";
+my $record_folder = "/tmp/records"
+my $record_beep = "";
+my $record_comp_level = -8;
+my $record_timeout = 45000;
+my $record_silence = "s=3";
+my $record_interruption_keys = "0123456789#";
+
+# Playback Variables
+
+# Audio Variables
+
+my $audio_input_format = "sln"; # sln, ulaw, alaw, wav, etc.
+my $audio_input_format_normalized = "wav"; 
+my $audio_output_format = "wav";
+my $audio_output_format_normalized = "sln";
+
+# Logger options
+
+my $debug_on = 1;  # 0: Off, 1: On
+
+
+###################################
+# DIALOGFLOW
+###################################
+# GCP OAuth 2.0 Constants
+
+my $gcp_credential_file = "/etc/dialogflow/api_key.json";
+my $gcp_auth_token_url = "https://oauth2.googleapis.com/token";
+my $gcp_auth_scope = "https://www.googleapis.com/auth/cloud-platform";
+my $dialogflow_api_template = "https://dialogflow.googleapis.com/v2/projects/{dialogflow_project}/agent/environments/{project_version}/users/{user_id}/sessions/{user_session}:detectIntent";
+
+
+
+
+
+############################
+# MAIN
+############################
+setVariable("NEXT_STEP","error");
+answerIfNot();
+getAsteriskVariable("CALLERIDNUM");
+$audio_input_file_16L = recordAudio("some_user_id");
+$audio_output_file = recognize($audio_input_file_16L,"some_user_id","-");
+playbackAudio($audio_output_file);
+cleanSessionFiles("some_user_id");
+setVariable("NEXT_STEP","capture");
+exit;
+
+#############################
+# FUNCTIONS
+#############################
+
+sub getAsteriskResponse {
+
+    my $args = <STDIN>;
+    my @response;
+    chomp $args;
+    if($args =~ /^200 result=(-?\d+)\s?(.*)$/){
+        @response = ("$1","$2",$args);
+    } else {
+        $args .= <STDIN> if ($args =~ /^520-Invalid/);
+        warn ("Unexpected behavior: $args\n");
+        @response = (-1,-1,$args);
+    }
+    return @response;
+
+}
+
+sub setVariable {
+    my ($variable_name,$varible_value) = @_;
+    print "SET VARIABLE $variable_name $varible_value\n";
+}
+
+
+sub getAsteriskVariable {
+    my ($variable_name) = @_;
+    my @response;
+    print "GET VARIABLE $variable_name\n";
+    $response = getAsteriskResponse();
+    debug("Asterisk raw response: ",$response[2]) if ($debug_on);
+    return $response[1];
+}
+
+sub cleanSessionFiles {
+    
+    my ($user_id) = @_;
+    unlink "$record_folder/$user_id*" or warn ("Files weren't fully deleted\n"); ;
+
+}
+
+sub recordAudio {
+
+    my ($user_id) = @_;
+    my @response;
+    my $recorded_audio;
+    my $formatted_audio;
+    my $timestamp = time;
+    my $record_command;
+    my $status;
+
+    $recorded_audio = "$record_folder/$user_id\_$timestamp.$audio_input_format";
+    $formatted_audio = "$record_folder/$user_id\_$timestamp.$audio_input_format_normalized";
+
+    $record_command = "RECORD FILE $recorded_audio $audio_input_format \"$record_interruption_keys\" \"$record_timeout\" \"$record_beep\" \"$record_silence\"\n";
+    debug($record_command) if ($debug_on);
+    print $record_command;
+    @response = getAsteriskResponse();
+
+    if($response[0]==-1) {
+        die "Failed to record file, aborting...\n";
+    } elsif ($response[0]>=32 && chr($response[0]) =~ /[\w*#]/) {
+        debug("Interrupted by the user input chr($response[0])") if ($debug_on);
+        print "SET EXTENSION ", chr($response[0]), "\n";
+        getAsteriskResponse();
+        print "SET PRIORITY 1\n";
+        checkresponse();
+    } elsif ($response[0]!=0) {
+        die "Failed to record file, error code: $response[0]\n";
+    }
+    $status = formatAudio($recorded_audio,$formatted_audio,1);
+    if($status==0){
+        return $formatted_audio;
+    }else{
+        return "\n";
+    }
+}
+
+sub formatAudio {
+    my ($input_file,$output_file,$direction) = @_;
+    my $convert_command;
+    my $command_status;
+    if ($direction == 1) {
+
+        $convert_command = "sox \"$input_file\" -e signed-integer -b 16 -r 16k \"$output_file\"\n";
+
+    } elsif ($direction == 2) {
+
+        $convert_command = "sox \"$input_file\" -t raw -r 8k -s -2 -c 1 \"$output_file\"\n";
+
+    } else {
+
+        die "This direction is not supported: $direction\n";
+
+    }
+
+    $command_status = qx/$convert_command/;
+    debug("Formatting audio status: $command_status") if ($debug_on);
+
+    return $command_status;
+}
+
+sub answerIfNot {
+    
+    my @response;
+
+    print "CHANNEL STATUS\n";
+    @response = getAsteriskResponse();
+    if ($response[0] == 4) {
+        debug ("Answering IDLE channel.") if ($debug_on);
+        print "ANSWER\n";
+        @response = getAsteriskResponse();
+        if ($response[0] != 0) {
+            die "Failed to answer channel.\n";
+        }
+    }
+}
+
+sub recognize {
+
+    my $json_object;
+    my $json_str;
+    my $json_body;
+    my $json_headers;
+    my $gcp_token;
+    my $dialogflow_api_url;
+    my $input_binary;
+    my $input_base64_str;
+    my $output_base64_str;
+    my $output_binary;
+    my $http_client;
+    my $output_audio;
+    my $formatted_audio;
+    my $timestamp = time;
+    my $status;
+    my ($input_file,$user_id,$user_session) = @_;
+
+
+    $output_audio = "$record_folder/$user_id\_$timestamp.$audio_output_format";
+    $formatted_audio = "$record_folder/$user_id\_$timestamp.$audio_output_format_normalized";
+    $dialogflow_api_url = $dialogflow_api_template;
+    $dialogflow_api_url = $dialogflow_api_url =~ s/\{user_id\}/$user_id/r;
+    $dialogflow_api_url = $dialogflow_api_url =~ s/\{user_session\}/$user_session/r;
+    $gcp_token = getGCPToken();
+    open(FILE, "<", "$input_file") or die "Can't read file: $!";
+    $input_binary = do { local $/; <FILE> };
+    close(FILE);
+    $input_base64_str = encode_base64url($input_binary);
+
+    $json_headers = {
+        'Content-Type' => 'application/json',
+        Authorization => "Bearer $gcp_token" 
+    };
+
+    $json_body = encode_json({
+        inputAudio =>"$input_base64_str",
+        outputAudioConfig => {
+            audioEncoding => "OUTPUT_AUDIO_ENCODING_LINEAR_16"
+        },
+        queryInput => {
+            audioConfig => {
+                audioEncoding => "AUDIO_ENCODING_LINEAR_16",
+                languageCode => "es",
+                sampleRateHertz => 16000
+            }
+        },
+        queryParams => {
+            timeZone => "America/New_York",
+            contexts => [],
+            sessionEntityTypes => [],
+            resetContexts => \0
+        },
+        outputAudioConfigMask => ""
+    });
+    $http_client = REST::Client->new();
+    $http_client->POST($dialogflow_api_url,
+                       $json_body,
+                       $json_headers
+    );
+    $json_object = decode_json($http_client->responseContent());
+    $output_base64_str = $json_object->{'outputAudio'};
+    $output_binary = decode_base64url($output_base64_str);
+
+    open(FILE,">","$output_audio") or die "Can't write file: $!";
+    binmode FILE;
+    print FILE $output_binary;
+    close(FILE);
+
+    $status = formatAudio($output_audio,$formatted_audio,2);
+
+    if($status==0){
+
+        return $formatted_audio;
+
+    }else{
+
+        return "\n";
+
+    }
+}
+
+
+sub getGCPToken {
+
+    my $json_object;
+    my $json_str;
+    my $json_body;
+    my $json_headers;
+    my $gcp_token;
+    my $jwt_payload;
+    my $jwt_headers;
+    my $jwt_token;
+    my $jwt_iat = time;
+    my $jwt_exp = $jwt_iat+3600;
+    my $http_client;
+
+    open(JSON, "$gcp_credential_file") or die "Can't read GCP JSON file: $!";
+    $json_str = do { local $/; <JSON> };
+    close(JSON);
+
+    $json_object = decode_json($json_str);
+
+    $jwt_payload = {
+
+        iss => $json_object->{'client_email'},
+        sub => $json_object->{'client_email'},
+        aud => $gcp_auth_token_url,
+        iat => $jwt_iat,
+        exp => $jwt_exp,
+        scope => $gcp_auth_scope 
+
+    };
+
+    $jwt_headers = {
+        kid => $json_object->{'private_key_id'},
+        alg => "RS256",
+        typ => "JWT"
+    };
+
+    $jwt_token = encode_jwt(payload => $jwt_payload,
+                        key => Crypt::PK::RSA->new(\$json_object->{'private_key'}),
+                        extra_headers => $jwt_headers,
+                        alg => "RS256"
+                        );
+
+    $http_client = REST::Client->new();
+    $json_headers = {
+        'Content-Type' => 'application/json'
+    };
+
+    $json_body = encode_json({
+        'grant_type' => "urn:ietf:params:oauth:grant-type:jwt-bearer",
+        'assertion' => "$jwt_token"
+    });
+    $http_client->POST($gcp_auth_token_url,
+                       $json_body,
+                       $json_headers
+    );
+
+    $json_object = decode_json($http_client->responseContent());
+    $gcp_token = $json_object->{'access_token'};
+
+    return $gcp_token;
+}
+
+
+sub playbackAudio {
+
+    my ($file, $interruption_keys) = @_;
+    my @response;
+
+    print "STREAM FILE $file \"$interruption_keys\"\n";
+    @response = getAsteriskResponse();
+
+    if($response[0]>=32 && chr($response[0]) =~ /[\w*#]/) {
+        debug("Interrupted by the user input chr($response[0])") if ($debug_on);
+        print "SET EXTENSION ", chr($response[0]), "\n";
+        getAsteriskResponse();
+        print "SET PRIORITY 1\n";
+        getAsteriskResponse();
+    } elsif () {
+        debug("Failed to play $file.");
+    }
+    return $response[0];
+}
+
+sub debug {
+
+    foreach my $log_message (@_) {
+        
+        warn "$log_message\n";
+        print "NOOP \"$log_message\"\n";
+        getAsteriskResponse();
+
+    }
+
+}
